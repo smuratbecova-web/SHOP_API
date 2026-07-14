@@ -1,6 +1,8 @@
+import random
 from rest_framework import serializers
-from .models import Category, Product, Review
+from django.contrib.auth.models import User
 from django.db.models import Avg
+from .models import Category, Product, Review, UserConfirmation
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -63,4 +65,46 @@ class ProductReviewsSerializer(serializers.ModelSerializer):
         average = obj.reviews.aggregate(Avg('stars'))['stars__avg']
         if average is None:
             return 0.0
-        return round(average, 2)  
+        return round(average, 2)
+
+class UserRegisterSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150)
+    password = serializers.CharField(write_only=True)
+    email = serializers.EmailField()
+
+    def validate_username(self, value):
+        if not value or not value.strip():
+            raise serializers.ValidationError("Username cannot be empty.")
+        if User.objects.filter(username=value).exists():
+            raise serializers.ValidationError("Username already exists.")
+        return value
+
+    def validate_password(self, value):
+        if len(value) < 6:
+            raise serializers.ValidationError("Password must be at least 6 characters.")
+        return value
+
+    def create(self, validated_data):
+        user = User.objects.create_user(
+            username=validated_data['username'],
+            email=validated_data['email'],
+            password=validated_data['password'],
+            is_active=False
+        )
+        code = str(random.randint(100000, 999999))
+        UserConfirmation.objects.create(user=user, code=code)
+        print(f"\n[DEBUG] Confirmation code for {user.username} is: {code}\n")
+        return user
+
+class UserLoginSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField(write_only=True)
+
+class UserConfirmSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    code = serializers.CharField(max_length=6, min_length=6)
+
+    def validate_code(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("Code must contain only digits.")
+        return value
